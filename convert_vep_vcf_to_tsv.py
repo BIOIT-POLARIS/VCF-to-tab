@@ -11,6 +11,7 @@ def main():
             out_f = open(args.output_file, 'w')
         info_header = ''
         info_key = 'CSQ'
+        wrote_header = False
         for line in in_f:
             out_str = ''
             # find VEP INFO in header
@@ -25,27 +26,31 @@ def main():
                     '|', '\t'
                 ).strip().strip('">')
             elif line.startswith('#CHROM'):
-                # write header
-                header = '%s\t%s' % (
-                    line.strip('#').replace('INFO', '').strip(), info_header
-                )
-                header = header.split('\t')
-                out_str = '\t'.join(header)
+                header = line.strip().strip('#').split('\t')
             elif not line.startswith('##'):
-                # find VEP INFO field
+                orig_line = line
                 line = line.replace('|', '\t').strip().split('\t')
                 is_vep_info_col = [z.startswith(info_key) for z in line]
-
                 if True in is_vep_info_col:
                     info_index = is_vep_info_col.index(True)
-                    out_str = '\t'.join(line[:info_index]) + '\t'
+                    if not wrote_header:
+                        out_str = '%s\t%s\t%s\n' % (
+                            '\t'.join(header[:info_index]),
+                            info_header,
+                            '\t'.join(header[info_index + 1:])
+                        )
+                        wrote_header = True
+
+                    out_str += '\t'.join(line[:info_index]) + '\t'
                     for i, value in enumerate(line[info_index:]):
                         if value.startswith(','):
                             out_str += '\n%s\t' % '\t'.join(line[:info_index])
                         out_str += '%s\t' % value.strip(',').strip(info_key)
-                    out_str += '\t'.join(line[info_index + 1:]) + '\t'
                 else:
-                    out_str = '\t'.join(line)
+                    if not wrote_header:
+                        out_str = '%s\n' % '\t'.join(header)
+                        wrote_header = True
+                    out_str += orig_line.strip()
             # output
             if out_str:
                 if args.output_file:
