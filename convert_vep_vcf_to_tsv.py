@@ -10,11 +10,14 @@ def main():
         if args.output_file:
             out_f = open(args.output_file, 'w')
         info_header = ''
-        print in_f.readline()
+        info_key = 'CSQ'
         for line in in_f:
             out_str = ''
             # find VEP INFO in header
-            if line.startswith('##INFO') and 'Ensembl VEP' in line:
+            if (
+                (line.startswith('##INFO') or line.startswith('"##INFO')) and
+                'Ensembl VEP' in line
+            ):
                 info_key = '%s=' % line[
                     line.index('ID=') + 3:line.index(',')
                 ]
@@ -40,7 +43,7 @@ def main():
                         if value.startswith(','):
                             out_str += '\n%s\t' % '\t'.join(line[:info_index])
                         out_str += '%s\t' % value.strip(',').strip(info_key)
-                    out_str += '\t'.join(line[info_index + 1]) + '\t'
+                    out_str += '\t'.join(line[info_index + 1:]) + '\t'
                 else:
                     out_str = '\t'.join(line)
             # output
