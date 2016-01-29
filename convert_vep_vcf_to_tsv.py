@@ -10,10 +10,13 @@ def main():
         if args.output_file:
             out_f = open(args.output_file, 'w')
         info_header = ''
-        info_key = 'CSQ'
+        header = ''
+        info_key = 'CSQ='
         wrote_header = False
         for line in in_f:
             out_str = None
+            if not line.strip():
+                continue
             # find VEP INFO in header
             if (
                 (line.startswith('##INFO') or line.startswith('"##INFO')) and
@@ -29,7 +32,8 @@ def main():
                 header = line.strip().strip('#').split('\t')
             elif not line.startswith('##'):
                 out_str = process_variant(
-                    line.strip(), info_key, header, info_header, wrote_header
+                    args, line.strip(), info_key, header, info_header,
+                    wrote_header
                 )
                 wrote_header = True
             # output
@@ -43,48 +47,147 @@ def main():
             out_f.close()
 
 
-def process_variant(line, info_key, header, info_header, wrote_header):
-    """Process a single variant. (Single line in input file.)
-    Return output string.
+def process_variant(args, line, info_key, header, info_header, wrote_header):
+    """Write header if hasn't been written, and process a single variant.
+    (Single line in input file.) Return output string.
     """
     out_str = ''
-    orig_line = line
+    orig_line = line.strip().split('\t')
     line = line.replace('|', '\t').strip().split('\t')
     is_vep_info_col = [info_key in z for z in line]
-    if True in is_vep_info_col:
-        info_index = is_vep_info_col.index(True)
-        info_end_index = info_index + len(line) - len(orig_line.split('\t'))
-        # get header output str
-        if not wrote_header:
-            out_header = (
-                header[:info_index] + ['INFO'] + info_header +
-                header[info_index + 1:]
-            )
-            out_str = '%s\n' % '\t'.join(out_header)
-        # get variant output str
-        info_per_transcript = get_info_per_transcript(
-            line[info_index:info_end_index + 1], info_key
+    if True not in is_vep_info_col:
+        raise ValueError(
+            'This does not appear to be a VCF-format Variant Effect '
+            'Predictor output file.'
         )
-        info = line[info_index]
-        if info_key in info:
-            info_out = info[:info.index(info_key)].strip(';')
-            end_info = info[info.index(info_key):]
-            if ';' in end_info:
-                info_out += end_info[end_info.index(';'):]
+    info_index = is_vep_info_col.index(True)
+    info_end_index = info_index + len(line) - len(orig_line)
+    if not wrote_header:
+        out_header = create_header(
+            args, info_index, header, info_header, orig_line
+        )
+        out_str = '%s\n' % '\t'.join(out_header)
+
+    # get variant output str
+    out_str += create_variant_str(
+        args, line, info_index, info_end_index, info_key, header, orig_line
+    )
+    return out_str
+
+
+def create_header(args, info_index, header, info_header, orig_line):
+    """Return output header."""
+    out_header = (
+        header[:info_index] + ['INFO'] + info_header + header[info_index + 1:]
+    )
+    # ignore expand_genotypes and expand_samples if FORMAT not in header or
+    # nothing past FORMAT
+    if not (
+        'FORMAT' in out_header and (len(header) > header.index('FORMAT') + 1)
+    ):
+        args.expand_genotype = False
+        args.expand_samples = False
+
+    if args.expand_genotype or args.expand_samples:
+        out_header = out_header[:out_header.index('FORMAT')]
+        # assumes colon-delimited FORMAT string
+        format_header = orig_line[header.index('FORMAT')].split(':')
+        if args.expand_samples:
+            if not args.expand_genotype:
+                out_header.append('FORMAT')
+            out_header.append('Sample_name')
+            if args.expand_genotype:
+                out_header += format_header
+            else:
+                out_header.append(':'.join(format_header))
+        elif args.expand_genotype:
+            # assumes all columns beyond FORMAT are sample columns
+            for x in header[header.index('FORMAT') + 1:]:
+                for y in format_header:
+                    out_header.append('%s_%s' % (x, y))
+
+    return out_header
+
+
+def create_variant_str(
+    args, line, info_index, info_end_index, info_key, header, orig_line
+):
+    """Return string output for a given variant."""
+    info_per_transcript = get_info_per_transcript(
+        line[info_index:info_end_index + 1], info_key
+    )
+    info = line[info_index]
+    if info_key in info:
+        info_out = info[:info.index(info_key)].strip(';')
+        end_info = info[info.index(info_key):]
+        if ';' in end_info:
+            info_out += end_info[end_info.index(';'):]
+
+    after_info = line[info_end_index + 1:]
+    if 'FORMAT' in header:
+        format_index = header.index('FORMAT') + len(line) - len(orig_line)
+    if args.expand_genotype:
+        # assumes INFO comes before FORMAT, which comes directly before
+        # samples (if present)
+        after_info = line[info_end_index + 1:format_index]
+        if len(line) > format_index + 1:
+            for sample in line[format_index + 1:]:
+                # make sure number of genotype columns matches format
+                sample_out = sample.split(':')
+                for i in range(
+                    len(line[format_index].split(':')) - len(sample_out)
+                ):
+                    sample_out.append('.')
+                after_info += sample_out
+
+    if args.expand_transcripts:
+        var_list = []
         for tx_info in info_per_transcript:
-            out_str += '%s\t%s\t%s\t%s\n' % (
-                '\t'.join(line[:info_index]),
-                info_out,
-                '\t'.join(tx_info),
-                '\t'.join(line[info_end_index + 1:])
+            var_list.append(
+                line[:info_index] + [info_out] + tx_info + after_info
             )
     else:
-        if not wrote_header:
-            out_str = '%s\n' % '\t'.join(header)
-            wrote_header = True
-        out_str += orig_line.strip()
+        var_list = (
+            line[:info_index] + [info_out] +
+            ['|'.join(z) for z in zip(*info_per_transcript)] +  # transpose
+            after_info
+        )
+    if args.expand_samples:
+        sample_names = header[header.index('FORMAT') + 1:]
+        len_sample = 1
+        if args.expand_genotype:
+            len_sample = len(line[format_index].split(':'))
+        number_samples = len(line[format_index + 1:])
+        sample_ind = -(number_samples * len_sample)
+        if args.expand_transcripts:
+            before_samples = [z[:sample_ind] for z in var_list]
+            sample_data = [z[sample_ind:] for z in var_list]
+            var_list = []
+            for i in xrange(len(before_samples)):
+                for j in xrange(number_samples):
+                    var_list.append(
+                        before_samples[i] + [sample_names[j]] +
+                        sample_data[i][
+                            (j * len_sample):(j * len_sample + len_sample)
+                        ]
+                    )
+        else:
+            before_samples = var_list[:sample_ind]
+            sample_data = var_list[sample_ind:]
+            var_list = []
+            for i in xrange(number_samples):
+                var_list.append(
+                    before_samples + [sample_names[i]] +
+                    sample_data[
+                        (i * len_sample):(i * len_sample + len_sample)
+                    ]
+                )
+    if args.expand_transcripts or args.expand_samples:
+        var_str = '\n'.join(['\t'.join(z) for z in var_list])
+    else:
+        var_str = '\t'.join(var_list)
 
-    return out_str.strip()
+    return var_str.strip()
 
 
 def get_info_per_transcript(info_list, info_key):
@@ -104,6 +207,9 @@ def get_info_per_transcript(info_list, info_key):
             curr_transcript = []
             if len(value) > 1:
                 curr_transcript = [value[value.index(',') + 1:]]
+        elif i == len(info_list) - 1:
+            curr_transcript.append(value)
+            info_per_transcript.append(curr_transcript)
         else:
             curr_transcript.append(value)
     return info_per_transcript
@@ -127,20 +233,20 @@ def parse_args():
              'of input file. (Default: standard output.)'
     )
     parser.add_argument(
-        '--separate_transcripts', action='store_true',
+        '-t', '--expand_transcripts', action='store_true',
         help='Put each transcript in a separate row. '
              '(Default: Combine all transcripts into a single row.)'
     )
     parser.add_argument(
-        '--separate_samples', action='store_true',
+        '-s', '--expand_samples', action='store_true',
         help='Put each sample in a separate row. '
-             '(Default: Put each sample in a different column, '
+             '(Default: Leave each sample in a different column, '
             'in a single row.)'
     )
     parser.add_argument(
-        '--separate_genotype', action='store_true',
-        help='Separate genotype data into columns. '
-             '(Default: leave colon-separated genotype data as is.) '
+        '-g', '--expand_genotype', action='store_true',
+        help='Separate genotype data into columns. Assumes colon delimiter.'
+             '(Default: Leave genotype data as is.) '
     )
     if len(sys.argv) == 1:
         parser.print_help()
