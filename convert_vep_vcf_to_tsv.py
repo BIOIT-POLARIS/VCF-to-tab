@@ -25,9 +25,12 @@ def main():
                 info_key = '%s=' % line[
                     line.index('ID=') + 3:line.index(',')
                 ]
-                info_header = line.split('Format: ')[1].replace(
-                    '|', '\t'
-                ).strip().strip('">').split('\t')
+                info_header = [
+                    'VEP_%s' % z for z in
+                    line.split('Format: ')[1].replace(
+                        '|', '\t'
+                    ).strip().strip('">').split('\t')
+                ]
             elif line.startswith('#CHROM'):
                 header = line.strip().strip('#').split('\t')
             elif not line.startswith('##'):
@@ -148,9 +151,10 @@ def create_variant_str(
             )
     else:
         var_list = (
-            line[:info_index] + [info_out] +
-            ['|'.join(z) for z in zip(*info_per_transcript)] +  # transpose
-            after_info
+            line[:info_index] + [info_out] + [
+                args.transcript_delimiter.join(z) for z in
+                zip(*info_per_transcript)  # transpose
+            ] + after_info
         )
     if args.expand_samples:
         sample_names = header[header.index('FORMAT') + 1:]
@@ -248,6 +252,11 @@ def parse_args():
         help='Separate genotype data into columns. Assumes colon delimiter.'
              '(Default: Leave genotype data as is.) '
     )
+    parser.add_argument(
+        '-d', '--transcript_delimiter', default='|',
+        help='Delimiter between transcript values in each category. '
+             '(Default: |) Has no effect when --expand_transcripts is True.'
+    )
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
@@ -256,3 +265,4 @@ def parse_args():
 
 if __name__ == '__main__':
     main()
+
