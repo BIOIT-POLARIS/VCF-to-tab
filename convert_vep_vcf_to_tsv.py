@@ -6,10 +6,11 @@ import argparse
 
 def main():
     args = parse_args()
+    info_fields = get_info_fields(args.input_file)
     with open(args.input_file) as in_f:
         if args.output_file:
             out_f = open(args.output_file, 'w')
-        info_header = ''
+        vep_info_header = ''
         header = ''
         info_key = 'CSQ='
         wrote_header = False
@@ -25,18 +26,20 @@ def main():
                 info_key = '%s=' % line[
                     line.index('ID=') + 3:line.index(',')
                 ]
-                info_header = [
+                vep_info_header = [
                     'VEP_%s' % z for z in
                     line.split('Format: ')[1].replace(
                         '|', '\t'
                     ).strip().strip('">').split('\t')
                 ]
+                if info_key.strip('=') in info_fields:
+                    info_fields.remove(info_key.strip('='))
             elif line.startswith('#CHROM'):
                 header = line.strip().strip('#').split('\t')
             elif not line.startswith('##'):
                 out_str = process_variant(
-                    args, line.strip(), info_key, header, info_header,
-                    wrote_header
+                    args, line.strip(), info_key, info_fields, header,
+                    vep_info_header, wrote_header
                 )
                 wrote_header = True
             # output
@@ -50,7 +53,36 @@ def main():
             out_f.close()
 
 
-def process_variant(args, line, info_key, header, info_header, wrote_header):
+def get_info_fields(input_file):
+    """Read through entire input file and extract keys from
+    key=value pairs in INFO. Return list of all keys.
+    """
+    info_fields = []
+    with open(input_file) as in_f:
+        info_index = None
+        for line in in_f:
+            if not line.strip() or line.startswith('##'):
+                continue
+            elif line.startswith('#'):
+                line = line.strip().split('\t')
+                if 'INFO' in line:
+                    info_index = line.index('INFO')
+            else:
+                if info_index is None:
+                    break
+                for x in line.strip().split('\t')[info_index].split(';'):
+                    if '=' in x:
+                        k, v = x.split('=')
+                        if k not in info_fields:
+                            info_fields.append(k)
+                    elif x not in info_fields:
+                        info_fields.append(x)
+    return info_fields
+
+
+def process_variant(
+    args, line, info_key, info_fields, header, vep_info_header, wrote_header
+):
     """Write header if hasn't been written, and process a single variant.
     (Single line in input file.) Return output string.
     """
@@ -67,21 +99,25 @@ def process_variant(args, line, info_key, header, info_header, wrote_header):
     info_end_index = info_index + len(line) - len(orig_line)
     if not wrote_header:
         out_header = create_header(
-            args, info_index, header, info_header, orig_line
+            args, info_index, header, vep_info_header, info_fields, orig_line
         )
         out_str = '%s\n' % '\t'.join(out_header)
 
     # get variant output str
     out_str += create_variant_str(
-        args, line, info_index, info_end_index, info_key, header, orig_line
+        args, line, info_index, info_end_index, info_key, header, orig_line,
+        info_fields
     )
     return out_str
 
 
-def create_header(args, info_index, header, info_header, orig_line):
+def create_header(
+    args, info_index, header, vep_info_header, info_fields, orig_line
+):
     """Return output header."""
     out_header = (
-        header[:info_index] + ['INFO'] + info_header + header[info_index + 1:]
+        header[:info_index] + info_fields + vep_info_header +
+        header[info_index + 1:]
     )
     # ignore expand_genotypes and expand_samples if FORMAT not in header or
     # nothing past FORMAT
@@ -113,15 +149,28 @@ def create_header(args, info_index, header, info_header, orig_line):
 
 
 def create_variant_str(
-    args, line, info_index, info_end_index, info_key, header, orig_line
+    args, line, info_index, info_end_index, info_key, header, orig_line,
+    info_fields
 ):
     """Return string output for a given variant."""
     info_per_transcript = get_info_per_transcript(
         line[info_index:info_end_index + 1], info_key
     )
     info = line[info_index]
+    info_dict_non_vep = {}
+    for x in info.split(';'):
+        if '=' in x:
+            k, v = x.split('=')
+            info_dict_non_vep[k] = v
+        else:
+            info_dict_non_vep[x] = 'True'
     if info_key in info:
-        info_out = info[:info.index(info_key)].strip(';')
+        info_out = []
+        for x in info_fields:
+            if x in info_dict_non_vep:
+                info_out.append(info_dict_non_vep[x])
+            else:
+                info_out.append('')
         end_info = info[info.index(info_key):]
         if ';' in end_info:
             info_out += end_info[end_info.index(';'):]
@@ -147,11 +196,11 @@ def create_variant_str(
         var_list = []
         for tx_info in info_per_transcript:
             var_list.append(
-                line[:info_index] + [info_out] + tx_info + after_info
+                line[:info_index] + info_out + tx_info + after_info
             )
     else:
         var_list = (
-            line[:info_index] + [info_out] + [
+            line[:info_index] + info_out + [
                 args.transcript_delimiter.join(z) for z in
                 zip(*info_per_transcript)  # transpose
             ] + after_info
