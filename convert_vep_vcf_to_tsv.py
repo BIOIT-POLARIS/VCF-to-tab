@@ -157,6 +157,8 @@ def create_variant_str(
         line[info_index:info_end_index + 1], info_key
     )
     info = line[info_index]
+    if ';' in line[info_end_index]:
+        info += line[info_end_index][line[info_end_index].index(';'):]
     info_dict_non_vep = {}
     for x in info.split(';'):
         if '=' in x:
@@ -171,9 +173,6 @@ def create_variant_str(
                 info_out.append(info_dict_non_vep[x])
             else:
                 info_out.append('')
-        end_info = info[info.index(info_key):]
-        if ';' in end_info:
-            info_out += end_info[end_info.index(';'):]
 
     after_info = line[info_end_index + 1:]
     if 'FORMAT' in header:
@@ -261,7 +260,10 @@ def get_info_per_transcript(info_list, info_key):
             if len(value) > 1:
                 curr_transcript = [value[value.index(',') + 1:]]
         elif i == len(info_list) - 1:
-            curr_transcript.append(value)
+            if ';' in value:
+                curr_transcript.append(value[:value.index(';')])
+            else:
+                curr_transcript.append(value)
             info_per_transcript.append(curr_transcript)
         else:
             curr_transcript.append(value)
@@ -314,4 +316,5 @@ def parse_args():
 
 if __name__ == '__main__':
     main()
+
 
