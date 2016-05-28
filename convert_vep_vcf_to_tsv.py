@@ -134,6 +134,8 @@ def create_header(
         if args.expand_samples:
             if not args.expand_genotype:
                 out_header.append('FORMAT')
+            else:
+                format_header = ['Sample_%s' % z for z in format_header]
             out_header.append('Sample_name')
             if args.expand_genotype:
                 out_header += format_header
