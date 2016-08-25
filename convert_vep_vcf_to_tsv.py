@@ -88,7 +88,27 @@ def process_variant(
     """
     out_str = ''
     orig_line = line.strip().split('\t')
-    line = line.replace('|', '\t').strip().split('\t')
+
+    """ AnnBZ: 08-24-16: Fixing MORL-447
+        original code:
+        line = line.replace('|', '\t').strip().split('\t')
+
+        Reformatting line such that the '|' -> '\t' replacement is ONLY done on VEP section
+        Other info fields could use the '|' delimiter
+    """
+    vep_index = line.index(info_key)
+    if (vep_index >= 0):
+        line_before_VEP = line[0: vep_index]
+        line_VEP_to_end = line[vep_index: len(line)]
+        try:
+            vep_end_index = line_VEP_to_end.index(';')
+        except ValueError:
+            vep_end_index = line_VEP_to_end.index('\t')
+        line_VEP_part = line[vep_index: vep_end_index]
+        line_after_VEP = line[vep_end_index: len(line)]
+        line = line_before_VEP + line_VEP_part.replace('|', '\t') + line_after_VEP
+
+    line = line.strip().split('\t')
     is_vep_info_col = [info_key in z for z in line]
     if True not in is_vep_info_col:
         raise ValueError(
