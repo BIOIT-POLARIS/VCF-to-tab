@@ -10,7 +10,9 @@ def main():
     with open(args.input_file) as in_f:
         if args.output_file:
             out_f = open(args.output_file, 'w')
-        vep_info_header = ''
+        # Ann BZ - removing VEP as a hard dependency
+        # vep_info_header = ''
+        vep_info_header = []
         header = ''
         info_key = 'CSQ='
         wrote_header = False
@@ -112,12 +114,20 @@ def process_variant(
         pass
     line = line.strip().split('\t')
     is_vep_info_col = [info_key in z for z in line]
+    '''
+        AnnBZ: 03-27-2017: Removing hard dependency on VEP
+        This tool has value in general VCF -> TAB splitter
+
     if True not in is_vep_info_col:
         raise ValueError(
             'This does not appear to be a VCF-format Variant Effect '
             'Predictor output file.'
         )
-    info_index = is_vep_info_col.index(True)
+    '''
+    info_index = 7
+    if True in is_vep_info_col:
+        info_index = is_vep_info_col.index(True)
+
     info_end_index = info_index + len(line) - len(orig_line)
     if not wrote_header:
         out_header = create_header(
@@ -177,9 +187,18 @@ def create_variant_str(
     info_fields
 ):
     """Return string output for a given variant."""
-    info_per_transcript = get_info_per_transcript(
-        line[info_index:info_end_index + 1], info_key
-    )
+    # AnnBZ: 03-27-2017 -> Removing dependence on VEP
+    info_part = line[info_index:info_end_index + 1]
+    is_vep = False
+    for info in info_part:
+        if info_key in info:
+            is_vep = True
+
+    info_per_transcript = []
+    if (is_vep):
+        info_per_transcript = get_info_per_transcript(
+            line[info_index:info_end_index + 1], info_key
+        )
     info = line[info_index]
     if ';' in line[info_end_index]:
         info += line[info_end_index][line[info_end_index].index(';'):]
@@ -190,13 +209,15 @@ def create_variant_str(
             info_dict_non_vep[k] = v
         else:
             info_dict_non_vep[x] = 'True'
-    if info_key in info:
-        info_out = []
-        for x in info_fields:
-            if x in info_dict_non_vep:
-                info_out.append(info_dict_non_vep[x])
-            else:
-                info_out.append('')
+
+    # AnnBZ: 03-27-2017: Augmenting logic to not be dependent on VEP
+    # if info_key in info:
+    info_out = []
+    for x in info_fields:
+        if x in info_dict_non_vep:
+            info_out.append(info_dict_non_vep[x])
+        else:
+            info_out.append('')
 
     after_info = line[info_end_index + 1:]
     if 'FORMAT' in header:
@@ -215,8 +236,10 @@ def create_variant_str(
                     sample_out.append('.')
                 after_info += sample_out
 
+    # AnnBZ: 03-27-2017: Augmenting logic to not be dependent on VEP
+    var_list = []
     if args.expand_transcripts:
-        var_list = []
+        # var_list = []
         for tx_info in info_per_transcript:
             var_list.append(
                 line[:info_index] + info_out + tx_info + after_info
@@ -263,7 +286,16 @@ def create_variant_str(
     else:
         var_str = '\t'.join(var_list)
 
-    return var_str.strip()
+    info_len = len(var_list)
+
+    # Ann BZ: 03-28-2017: Removing dependence on VEP
+    #         Unclear why the strip is included ... this removes the trailing chars added at line 220
+    #         Removing the strip() call when VEP is not found to be included - there is likely something
+    #         to do with VEP which requires the strip(), but it interferes when there is no VEP annotations.
+    if (is_vep):
+        return var_str.strip()
+    else:
+        return var_str
 
 
 def get_info_per_transcript(info_list, info_key):
