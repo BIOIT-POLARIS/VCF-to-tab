@@ -74,7 +74,9 @@ def get_info_fields(input_file):
                     break
                 for x in line.strip().split('\t')[info_index].split(';'):
                     if '=' in x:
-                        k, v = x.split('=')
+                        # Ann BZ: 04-05-2017: adding maxsplit=1 to the field split.  This allows '=' to be in the value of a field.split
+                        #         (Fixes bug found in Exome annotation.  Info field annotation that had problem: DBSCSNV_REFSEQ_GENE=LINC00342(dist=112001),FAHD2CP(dist=71569))
+                        k, v = x.split('=', 1)
                         if k not in info_fields:
                             info_fields.append(k)
                     elif x not in info_fields:
