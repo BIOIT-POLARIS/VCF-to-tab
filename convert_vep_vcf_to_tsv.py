@@ -207,7 +207,7 @@ def create_variant_str(
     info_dict_non_vep = {}
     for x in info.split(';'):
         if '=' in x:
-            k, v = x.split('=')
+            k, v = x.split('=', 1)
             info_dict_non_vep[k] = v
         else:
             info_dict_non_vep[x] = 'True'
